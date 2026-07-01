@@ -21,6 +21,10 @@ namespace One.ML.GA.TappyPane
 
         public float timeScale = 1f;
 
+        public static int finishedCount = 0;
+
+        public static int maxFinishedCount = 0;
+
         private GUIStyle guiStyle = new GUIStyle();
 
         private void OnGUI()
@@ -32,11 +36,13 @@ namespace One.ML.GA.TappyPane
             // nội dung có Gen: generation,
             // nội dung có elapsed: elapsed dạng string Time: 0:0:00
             // nội dung có population: population.Count
-            GUI.BeginGroup(new Rect(10, 10, 360, 230));
+            GUI.BeginGroup(new Rect(10, 10, 360, 300));
             GUI.Box(new Rect(0, 0, 360, 230), "Stats", guiStyle);
             GUI.Label(new Rect(20, 50, 330, 45), "Gen: " + generation, guiStyle);
             GUI.Label(new Rect(20, 100, 330, 45), string.Format("Time: {0:0.00}", elapsed), guiStyle);
             GUI.Label(new Rect(20, 150, 330, 45), "Population: " + population.Count, guiStyle);
+            GUI.Label(new Rect(20, 200, 330, 45), "Finished: " + finishedCount, guiStyle);
+            GUI.Label(new Rect(20, 250, 330, 45), "Max Finished: " + maxFinishedCount, guiStyle);
             GUI.EndGroup();
         }
 
@@ -50,15 +56,22 @@ namespace One.ML.GA.TappyPane
             }
 
             Time.timeScale = timeScale;
+
+            maxFinishedCount = 0;
         }
 
         private GameObject Breed(GameObject parent1, GameObject parent2)
+        {
+            return Breed(parent1, parent2, true);
+        }
+
+        private GameObject Breed(GameObject parent1, GameObject parent2, bool allowMutation)
         {
             GameObject offspring = Instantiate(botPrefab, startingPos.transform.position, Quaternion.identity);
             Brain brain = offspring.GetComponent<Brain>();
             brain.Init();
 
-            if (Random.Range(0, 100) == 1)
+            if (allowMutation && Random.Range(0, 100) == 1)
             {
                 brain.dna.Mutate();
             }
@@ -70,22 +83,36 @@ namespace One.ML.GA.TappyPane
             return offspring;
         }
 
+        private GameObject SelectParent(List<GameObject> rankedPopulation)
+        {
+            int selectionWindow = Mathf.Max(1, rankedPopulation.Count / 2);
+            int index = Mathf.FloorToInt(Mathf.Pow(Random.value, 2f) * selectionWindow);
+            return rankedPopulation[Mathf.Clamp(index, 0, rankedPopulation.Count - 1)];
+        }
+
         private void BreedNewPopulation()
         {
+            finishedCount = 0;
+
             List<GameObject> sortedList =
-                population.OrderBy(
-                    o => o.GetComponent<Brain>().distanceTravelled * 3 -
-                    o.GetComponent<Brain>().crash +
-                    o.GetComponent<Brain>().timeAlive * 2).ToList();
+                population.OrderByDescending(
+                    o => o.GetComponent<Brain>().GetFitness()).ToList();
 
             population.Clear();
 
-            for (int i = (int)(sortedList.Count * 0.75f) - 1; i < sortedList.Count - 1; i++)
+            int eliteCount = Mathf.Clamp(populationSize / 10, 1, populationSize);
+
+            // Giữ lại một phần nhỏ cá thể tốt nhất để tránh mất nghiệm tốt qua từng thế hệ.
+            for (int i = 0; i < eliteCount && i < sortedList.Count; i++)
             {
-                population.Add(Breed(sortedList[i], sortedList[i + 1]));
-                population.Add(Breed(sortedList[i + 1], sortedList[i]));
-                population.Add(Breed(sortedList[i], sortedList[i + 1]));
-                population.Add(Breed(sortedList[i + 1], sortedList[i]));
+                population.Add(Breed(sortedList[i], sortedList[i], false));
+            }
+
+            while (population.Count < populationSize)
+            {
+                GameObject parent1 = SelectParent(sortedList);
+                GameObject parent2 = SelectParent(sortedList);
+                population.Add(Breed(parent1, parent2));
             }
 
             for (int i = 0; i < sortedList.Count; i++)
